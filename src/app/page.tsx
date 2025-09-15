@@ -36,12 +36,6 @@ interface Gpt {
   createdAt: string;
 }
 
-interface SettingsModalProps {
-  userId: string;
-  getToken: () => Promise<string | null>;
-  onClose: () => void;
-}
-
 const availableModels = [
   { id: "gemini-1.5-pro-latest", name: "Gemini 1.5 Pro" },
   { id: "gemini-1.5-flash-latest", name: "Gemini 1.5 Flash" },
@@ -50,9 +44,7 @@ const availableModels = [
 // --- MAIN PAGE COMPONENT ---
 export default function Home() {
   const { isLoaded, isSignedIn } = useUser();
-  if (!isLoaded) {
-    return <div style={styles.loadingContainer}>Loading...</div>;
-  }
+  if (!isLoaded) return <div style={styles.loadingContainer}>Loading...</div>;
   return (
     <div style={styles.container}>
       <main style={styles.mainContent}>
@@ -66,7 +58,6 @@ function SignedOutView() {
   return (
     <div style={styles.signedOutContainer}>
       <h2>Please Sign In to Start Chatting</h2>
-      <p>Your chat history will be saved to your account.</p>
     </div>
   );
 }
@@ -172,7 +163,6 @@ function ChatWindow({
                     : styles.assistantBubble),
                 }}
               >
-                {/* **MARKDOWN FIX**: Conditionally render plain text during stream */}
                 {msg.isStreaming ? (
                   <pre style={styles.streamingText}>
                     {msg.content}
@@ -421,7 +411,15 @@ function CreateGptModal({
     </div>
   );
 }
-function SettingsModal({ userId, getToken, onClose }: SettingsModalProps) {
+function SettingsModal({
+  userId,
+  getToken,
+  onClose,
+}: {
+  userId: string;
+  getToken: () => Promise<string | null>;
+  onClose: () => void;
+}) {
   const [name, setName] = useState("");
   const [about, setAbout] = useState("");
   const [botPersonality, setBotPersonality] = useState("");
@@ -537,11 +535,20 @@ function UnifiedChatView() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [loadingMessage, setLoadingMessage] = useState(false);
-  const [selectedModel, setSelectedModel] = useState(availableModels[0].id);
+  const [selectedModel, setSelectedModel] = useState<string>(
+    availableModels[0].id
+  );
   const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
   const [activeGptPersona, setActiveGptPersona] = useState<string | null>(null);
   const [isCreateGptModalOpen, setCreateGptModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+
+  // NEW: Always render from a deduplicated array to guarantee unique keys.
+  const uniqueChats = React.useMemo(() => {
+    const m = new Map<string, Chat>();
+    for (const c of chats) m.set(c.chatId, c);
+    return Array.from(m.values());
+  }, [chats]);
 
   useEffect(() => {
     if (user) {
@@ -563,7 +570,7 @@ function UnifiedChatView() {
     setIsLoading(false);
   };
 
-  const loadUserChats = async () => {
+  const loadUserChats = async (selectChatId?: string) => {
     const token = await getToken();
     if (!token) return;
     try {
@@ -575,9 +582,19 @@ function UnifiedChatView() {
         const fetchedChats = (data.chats || []).filter(
           (c: any) => c && c.chatId
         );
-        setChats(fetchedChats);
-        if (fetchedChats.length > 0 && !activeChatId) {
-          setActiveChatId(fetchedChats[0].chatId);
+        // NEW: dedupe by chatId before committing to state
+        const byId = new Map<string, Chat>(
+          fetchedChats.map((c: Chat) => [c.chatId, c])
+        );
+        const deduped = Array.from(byId.values());
+        setChats(deduped);
+
+        const chatToSelect =
+          selectChatId ||
+          activeChatId ||
+          (deduped.length > 0 ? deduped[0].chatId : "");
+        if (chatToSelect && !activeChatId) {
+          setActiveChatId(chatToSelect);
         }
       }
     } catch (error) {
@@ -656,10 +673,12 @@ function UnifiedChatView() {
       });
       if (response.ok) {
         const { chat } = await response.json();
-        setChats((prev) => [
-          chat,
-          ...prev.filter((c) => c.chatId !== chat.chatId),
-        ]);
+        // NEW: merge by id to avoid duplicates
+        setChats((prev) => {
+          const m = new Map(prev.map((c) => [c.chatId, c]));
+          m.set(chat.chatId, chat);
+          return Array.from(m.values());
+        });
         setActiveChatId(chat.chatId);
         setActiveGptPersona(gpt ? gpt.persona : null);
         setMessages(
@@ -695,9 +714,8 @@ function UnifiedChatView() {
     });
     const updated = chats.filter((c) => c.chatId !== chatId);
     setChats(updated);
-    if (activeChatId === chatId) {
+    if (activeChatId === chatId)
       setActiveChatId(updated.length > 0 ? updated[0].chatId : "");
-    }
   };
 
   const handleGptCreated = (newGpt: Gpt) => {
@@ -715,6 +733,9 @@ function UnifiedChatView() {
     if (!input.trim() || loadingMessage || !user || !activeChatId) return;
 
     const currentInput = input;
+    const isNewChat =
+      messages.length === 0 ||
+      (messages.length === 1 && messages[0].role === "system");
     setMessages((prev) => [
       ...prev,
       { id: `user-${Date.now()}`, role: "user", content: currentInput },
@@ -765,9 +786,9 @@ function UnifiedChatView() {
               m.id === assistantMessageId ? { ...m, isStreaming: false } : m
             )
           );
-          // **DUPLICATE CHAT FIX**: Instead of reloading all chats, we just update the one that changed.
-          // This avoids the race condition and duplicate key errors.
-          loadUserChats();
+          if (isNewChat) {
+            loadUserChats(activeChatId);
+          }
         },
         onerror(err) {
           throw err;
@@ -817,7 +838,8 @@ function UnifiedChatView() {
           {isLoading ? (
             <p>Loading...</p>
           ) : (
-            chats.map((chat) => (
+            // Render from deduplicated list only (UI unchanged)
+            uniqueChats.map((chat) => (
               <ChatItem
                 key={chat.chatId}
                 chat={chat}
@@ -998,6 +1020,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderRadius: "8px",
     cursor: "pointer",
     backgroundColor: "#e3f2fd",
+    position:'relative'
   },
   chatAvatarImg: {
     width: "32px",
