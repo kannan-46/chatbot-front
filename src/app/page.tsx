@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 import { UserButton, useAuth, useUser } from "@clerk/nextjs";
+import { SignInButton } from "@clerk/nextjs";
 import "highlight.js/styles/github-dark.css";
 
 // --- INTERFACES & CONSTANTS ---
@@ -37,8 +38,9 @@ interface Gpt {
 }
 
 const availableModels = [
-  { id: "gemini-1.5-pro-latest", name: "Gemini 1.5 Pro" },
-  { id: "gemini-1.5-flash-latest", name: "Gemini 1.5 Flash" },
+  { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro" },
+  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+  {id:"gemini-1.5-flash",name:"Gemini 1.5 flash"}
 ];
 
 // --- MAIN PAGE COMPONENT ---
@@ -58,6 +60,9 @@ function SignedOutView() {
   return (
     <div style={styles.signedOutContainer}>
       <h2>Please Sign In to Start Chatting</h2>
+        <SignInButton mode="redirect">
+        <button style={styles.button}>Sign In</button>
+      </SignInButton>
     </div>
   );
 }
@@ -566,7 +571,7 @@ function UnifiedChatView() {
 
   const loadInitialData = async () => {
     setIsLoading(true);
-    await Promise.all([loadUserChats(), loadPublicGpts()]);
+    await Promise.all([loadUserChats(), loadAllGpts()]);
     setIsLoading(false);
   };
 
@@ -602,27 +607,74 @@ function UnifiedChatView() {
     }
   };
 
-  const loadPublicGpts = async () => {
-    const token = await getToken();
-    if (!token) return;
-    try {
-      const response = await fetch(`http://localhost:3001/gpts/list`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const serverGpts = Array.isArray(data.gpts) ? data.gpts : [];
-        setGpts(
-          serverGpts.sort(
-            (a, b) =>
-              new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-          )
-        );
-      }
-    } catch (error) {
-      console.error("Failed to load GPTs:", error);
+const loadUserGpts = async () => {
+  const token = await getToken();
+  if (!token) return [];
+  try {
+    const res = await fetch(`http://localhost:3001/gpts/my`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data.gpts) ? data.gpts : [];
     }
-  };
+  } catch (error) {
+    console.error("Failed to load user GPTs:", error);
+  }
+  return [];
+};
+
+const loadPublicGpts = async () => {
+  const token = await getToken();
+  if (!token) return [];
+  try {
+    const res = await fetch(`http://localhost:3001/gpts/list`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return Array.isArray(data.gpts) ? data.gpts : [];
+    }
+  } catch (error) {
+    console.error("Failed to load public GPTs:", error);
+  }
+  return [];
+};
+
+const loadAllGpts = async () => {
+  const token = await getToken();
+  if (!token) return;
+
+  try {
+    const [myRes, pubRes] = await Promise.all([
+      fetch("http://localhost:3001/gpts/my", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      fetch("http://localhost:3001/gpts/public/list"),
+    ]);
+
+    const myData = myRes.ok ? await myRes.json() : { gpts: [] };
+    const pubData = pubRes.ok ? await pubRes.json() : { gpts: [] };
+
+    // 🔥 Deduplicate by gptId
+    const mergedMap = new Map<string, Gpt>();
+    [...(myData.gpts || []), ...(pubData.gpts || [])].forEach((g: Gpt) =>
+      mergedMap.set(g.gptId, g)
+    );
+
+    const merged = Array.from(mergedMap.values());
+    merged.sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+
+    setGpts(merged);
+  } catch (error) {
+    console.error("Failed to load GPTs:", error);
+  }
+};
+
+
+
 
   const loadChatMessages = async (chatId: string) => {
     setMessages([]);
@@ -725,7 +777,7 @@ function UnifiedChatView() {
       ...prev.filter((g) => g.gptId !== newGpt.gptId),
     ]);
     setCreateGptModalOpen(false);
-    setTimeout(() => loadPublicGpts(), 1500);
+    // setTimeout(() => loadPublicGpts(), 1500);
   };
 
   const handleSend = async (e?: FormEvent) => {
