@@ -1020,7 +1020,7 @@ const styles: { [key: string]: React.CSSProperties } = {
     borderRadius: "8px",
     cursor: "pointer",
     backgroundColor: "#e3f2fd",
-    position:'relative'
+    position: "relative",
   },
   chatAvatarImg: {
     width: "32px",
