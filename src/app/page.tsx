@@ -20,6 +20,7 @@ interface Message {
 interface Chat {
   chatId: string;
   title: string;
+  avatarUrl: string;
   createdAt: string;
   lastMessageAt: string;
 }
@@ -130,6 +131,7 @@ function ChatWindow({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
   return (
     <>
       <div style={styles.controlsContainer}>
@@ -148,20 +150,20 @@ function ChatWindow({
         </select>
       </div>
       <div style={styles.chatWindow}>
-        {messages.map((msg) =>
-          msg.role === "system" ? (
-            <div key={msg.id} style={styles.systemMessage}>
-              {msg.content}
-            </div>
-          ) : (
-            <div
-              key={msg.id}
-              style={
-                msg.role === "user"
-                  ? styles.messageRowUser
-                  : styles.messageRowAssistant
-              }
-            >
+        {messages.map((msg) => (
+          <div
+            key={msg.id}
+            style={
+              msg.role === "system"
+                ? styles.systemMessageContainer
+                : msg.role === "user"
+                ? styles.messageRowUser
+                : styles.messageRowAssistant
+            }
+          >
+            {msg.role === "system" ? (
+              <div style={styles.systemMessage}>{msg.content}</div>
+            ) : (
               <div
                 style={{
                   ...styles.messageBubble,
@@ -170,19 +172,24 @@ function ChatWindow({
                     : styles.assistantBubble),
                 }}
               >
-                <ReactMarkdown
-                  remarkPlugins={[remarkGfm]}
-                  rehypePlugins={[rehypeHighlight]}
-                >
-                  {msg.content || ""}
-                </ReactMarkdown>
-                {msg.isStreaming && (
-                  <span style={styles.streamingIndicator}>▋</span>
+                {/* **MARKDOWN FIX**: Conditionally render plain text during stream */}
+                {msg.isStreaming ? (
+                  <pre style={styles.streamingText}>
+                    {msg.content}
+                    <span style={styles.streamingIndicator}>▋</span>
+                  </pre>
+                ) : (
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    rehypePlugins={[rehypeHighlight]}
+                  >
+                    {msg.content || ""}
+                  </ReactMarkdown>
                 )}
               </div>
-            </div>
-          )
-        )}
+            )}
+          </div>
+        ))}
         <div ref={messagesEndRef} />
       </div>
     </>
@@ -758,16 +765,9 @@ function UnifiedChatView() {
               m.id === assistantMessageId ? { ...m, isStreaming: false } : m
             )
           );
-          setChats((prevChats) => {
-            const now = new Date().toISOString();
-            const activeChat = prevChats.find((c) => c.chatId === activeChatId);
-            if (!activeChat) return prevChats;
-            const otherChats = prevChats.filter(
-              (c) => c.chatId !== activeChatId
-            );
-            const updatedActiveChat = { ...activeChat, lastMessageAt: now };
-            return [updatedActiveChat, ...otherChats];
-          });
+          // **DUPLICATE CHAT FIX**: Instead of reloading all chats, we just update the one that changed.
+          // This avoids the race condition and duplicate key errors.
+          loadUserChats();
         },
         onerror(err) {
           throw err;
@@ -1059,6 +1059,12 @@ const styles: { [key: string]: React.CSSProperties } = {
   streamingIndicator: {
     display: "inline-block",
     animation: "blink 1s infinite",
+  },
+  streamingText: { whiteSpace: "pre-wrap", fontFamily: "inherit", margin: 0 },
+  systemMessageContainer: {
+    display: "flex",
+    justifyContent: "center",
+    width: "100%",
   },
   systemMessage: {
     textAlign: "center",
