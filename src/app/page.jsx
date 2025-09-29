@@ -1,13 +1,5 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
-import {
-  ClerkProvider,
-  SignedIn,
-  SignedOut,
-  UserButton,
-  useAuth,
-  useUser,
-} from "@clerk/nextjs";
 import { fetchEventSource } from "@microsoft/fetch-event-source";
 
 // MUI Imports
@@ -39,60 +31,19 @@ import SendIcon from "@mui/icons-material/Send";
 import SettingsIcon from "@mui/icons-material/Settings";
 import CodeIcon from "@mui/icons-material/Code";
 
-// Define a dark theme for the application
+// --- Dark Theme ---
 const darkTheme = createTheme({
   palette: {
     mode: "dark",
-    primary: {
-      main: "#90caf9",
-    },
-    secondary: {
-      main: "#f48fb1",
-    },
-    background: {
-      default: "#121212",
-      paper: "#1e1e1e",
-    },
-    text: {
-      primary: "#e0e0e0",
-      secondary: "#b3b3b3",
-    },
+    primary: { main: "#90caf9" },
+    secondary: { main: "#f48fb1" },
+    background: { default: "#121212", paper: "#1e1e1e" },
+    text: { primary: "#e0e0e0", secondary: "#b3b3b3" },
   },
 });
 
-// Main App Component
 export default function Home() {
-  return (
-    <ClerkProvider>
-      <ThemeProvider theme={darkTheme}>
-        <CssBaseline />
-        <SignedIn>
-          <UnifiedChatView />
-        </SignedIn>
-        <SignedOut>
-          <Box
-            sx={{
-              display: "flex",
-              justifyContent: "center",
-              alignItems: "center",
-              height: "100vh",
-            }}
-          >
-            <Typography variant="h5">
-              Please sign in to use the chatbot.
-            </Typography>
-          </Box>
-        </SignedOut>
-      </ThemeProvider>
-    </ClerkProvider>
-  );
-}
-
-// --- Main View Component ---
-function UnifiedChatView() {
-  const { getToken } = useAuth();
-  const { user } = useUser();
-
+  // --- States ---
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState([]);
   const [chats, setChats] = useState([]);
@@ -108,63 +59,48 @@ function UnifiedChatView() {
 
   const API_URL = "http://localhost:3001";
 
-  // Fetch user chats on component mount
+  // --- Effects ---
   useEffect(() => {
     const fetchChats = async () => {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/chat`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(`${API_URL}/chat`);
       const data = await response.json();
       setChats(data);
     };
     fetchChats();
-  }, [getToken]);
+  }, []);
 
-  // Fetch GPTs for the explorer view
   useEffect(() => {
-    const fetchGpts = async () => {
-      const token = await getToken();
-      const [publicRes, userRes] = await Promise.all([
-        fetch(`${API_URL}/gpts/public`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API_URL}/gpts/user`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
-      const publicData = await publicRes.json();
-      const userData = await userRes.json();
-      setPublicGpts(publicData);
-      setUserGpts(userData);
-    };
     if (isGptExplorerVisible) {
+      const fetchGpts = async () => {
+        const [publicRes, userRes] = await Promise.all([
+          fetch(`${API_URL}/gpts/public`),
+          fetch(`${API_URL}/gpts/user`),
+        ]);
+        const publicData = await publicRes.json();
+        const userData = await userRes.json();
+        setPublicGpts(publicData);
+        setUserGpts(userData);
+      };
       fetchGpts();
     }
-  }, [isGptExplorerVisible, getToken]);
+  }, [isGptExplorerVisible]);
 
-  // Fetch user profile
   useEffect(() => {
     const fetchUserProfile = async () => {
-      const token = await getToken();
-      const response = await fetch(`${API_URL}/user`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const response = await fetch(`${API_URL}/user`);
       if (response.ok) {
         const data = await response.json();
         setUserProfile({
-          firstName: data.firstName || user?.firstName || "",
-          lastName: data.lastName || user?.lastName || "",
+          firstName: data.firstName || "",
+          lastName: data.lastName || "",
           interests: data.interests || "",
         });
       }
     };
-    if (user) {
-      fetchUserProfile();
-    }
-  }, [getToken, user]);
+    fetchUserProfile();
+  }, []);
 
-  // Function to handle switching to a new chat
+  // --- Handlers ---
   const handleNewChat = () => {
     setActiveChatId(null);
     setMessages([]);
@@ -172,14 +108,10 @@ function UnifiedChatView() {
     setIsGptExplorerVisible(false);
   };
 
-  // Function to handle selecting an existing chat
   const selectChat = async (chatId) => {
-    const token = await getToken();
     setIsGptExplorerVisible(false);
     setActiveChatId(chatId);
-    const response = await fetch(`${API_URL}/chat/${chatId}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const response = await fetch(`${API_URL}/chat/${chatId}`);
     const data = await response.json();
     setMessages(
       data.map((item) => ({
@@ -190,7 +122,6 @@ function UnifiedChatView() {
     );
   };
 
-  // Function to send a message
   const handleSend = async (e) => {
     e.preventDefault();
     if (!message.trim()) return;
@@ -204,17 +135,11 @@ function UnifiedChatView() {
     setMessage("");
     setIsLoading(true);
 
-    const token = await getToken();
     let currentChatId = activeChatId;
-
-    // Create a new chat if one isn't active
     if (!currentChatId) {
       const response = await fetch(`${API_URL}/chat`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: message }),
       });
       const newChat = await response.json();
@@ -226,7 +151,6 @@ function UnifiedChatView() {
     let accumulatedText = "";
     const modelMessageId = (Date.now() + 1).toString();
 
-    // Add a placeholder for the model's response
     setMessages((prev) => [
       ...prev,
       { id: modelMessageId, role: "model", text: "" },
@@ -234,10 +158,7 @@ function UnifiedChatView() {
 
     await fetchEventSource(`${API_URL}/chat/stream`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chatId: currentChatId,
         message: message,
@@ -264,126 +185,127 @@ function UnifiedChatView() {
     });
   };
 
-  // --- Main Layout ---
+  // --- Return UI ---
   return (
-    <Box sx={{ display: "flex", height: "100vh" }}>
-      {/* --- Sidebar --- */}
-      <Box
-        sx={{
-          width: 280,
-          bgcolor: "background.paper",
-          borderRight: "1px solid",
-          borderColor: "divider",
-          display: "flex",
-          flexDirection: "column",
-          p: 2,
-        }}
-      >
+    <ThemeProvider theme={darkTheme}>
+      <CssBaseline />
+      <Box sx={{ display: "flex", height: "100vh" }}>
+        {/* Sidebar */}
         <Box
           sx={{
+            width: 280,
+            bgcolor: "background.paper",
+            borderRight: "1px solid",
+            borderColor: "divider",
             display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            mb: 2,
+            flexDirection: "column",
+            p: 2,
           }}
         >
-          <Typography variant="h6">My Chats</Typography>
-          <UserButton afterSignOutUrl="/" />
-        </Box>
-        <Button
-          variant="outlined"
-          startIcon={<AddCommentIcon />}
-          onClick={handleNewChat}
-          sx={{ mb: 1 }}
-        >
-          New Chat
-        </Button>
-        <Button
-          variant="outlined"
-          startIcon={<ExploreIcon />}
-          onClick={() => setIsGptExplorerVisible(true)}
-          sx={{ mb: 2 }}
-        >
-          Explore GPTs
-        </Button>
-        <Divider />
-        <List sx={{ overflowY: "auto", flexGrow: 1 }}>
-          {chats.map((chat) => (
-            <ListItem key={chat.chatId} disablePadding>
-              <ListItemButton
-                selected={activeChatId === chat.chatId}
-                onClick={() => selectChat(chat.chatId)}
-              >
-                <ListItemText
-                  primary={chat.title}
-                  primaryTypographyProps={{
-                    noWrap: true,
-                    sx: { fontSize: "0.9rem" },
-                  }}
-                />
-              </ListItemButton>
-            </ListItem>
-          ))}
-        </List>
-        <Divider />
-        <Box sx={{ pt: 2 }}>
-          <Button
-            fullWidth
-            startIcon={<SettingsIcon />}
-            onClick={() => setSettingsModalOpen(true)}
-          >
-            Settings
-          </Button>
-        </Box>
-      </Box>
-
-      {/* --- Main Content --- */}
-      <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
-        {isGptExplorerVisible ? (
-          <GptExplorerView
-            publicGpts={publicGpts}
-            userGpts={userGpts}
-            onSelectGpt={(gpt) => {
-              setActiveGpt(gpt);
-              handleNewChat();
+          <Box
+            sx={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              mb: 2,
             }}
-            onCreateGpt={() => setCreateGptModalOpen(true)}
-          />
-        ) : (
-          <>
-            <ChatHeader gpt={activeGpt} />
-            <ChatWindow messages={messages} />
-            <MessageInput
-              message={message}
-              setMessage={setMessage}
-              handleSend={handleSend}
-              isLoading={isLoading}
-            />
-          </>
-        )}
-      </Box>
+          >
+            <Typography variant="h6">My Chats</Typography>
+          </Box>
+          <Button
+            variant="outlined"
+            startIcon={<AddCommentIcon />}
+            onClick={handleNewChat}
+            sx={{ mb: 1 }}
+          >
+            New Chat
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<ExploreIcon />}
+            onClick={() => setIsGptExplorerVisible(true)}
+            sx={{ mb: 2 }}
+          >
+            Explore GPTs
+          </Button>
+          <Divider />
+          <List sx={{ overflowY: "auto", flexGrow: 1 }}>
+            {chats.map((chat) => (
+              <ListItem key={chat.chatId} disablePadding>
+                <ListItemButton
+                  selected={activeChatId === chat.chatId}
+                  onClick={() => selectChat(chat.chatId)}
+                >
+                  <ListItemText
+                    primary={chat.title}
+                    primaryTypographyProps={{
+                      noWrap: true,
+                      sx: { fontSize: "0.9rem" },
+                    }}
+                  />
+                </ListItemButton>
+              </ListItem>
+            ))}
+          </List>
+          <Divider />
+          <Box sx={{ pt: 2 }}>
+            <Button
+              fullWidth
+              startIcon={<SettingsIcon />}
+              onClick={() => setSettingsModalOpen(true)}
+            >
+              Settings
+            </Button>
+          </Box>
+        </Box>
 
-      {/* --- Modals --- */}
-      <CreateGptModal
-        open={isCreateGptModalOpen}
-        onClose={() => setCreateGptModalOpen(false)}
-        onGptCreated={(newGpt) => {
-          setUserGpts((prev) => [newGpt, ...prev]);
-          setCreateGptModalOpen(false);
-        }}
-      />
-      <SettingsModal
-        open={isSettingsModalOpen}
-        onClose={() => setSettingsModalOpen(false)}
-        profile={userProfile}
-        setProfile={setUserProfile}
-      />
-    </Box>
+        {/* Main Content */}
+        <Box sx={{ flex: 1, display: "flex", flexDirection: "column" }}>
+          {isGptExplorerVisible ? (
+            <GptExplorerView
+              publicGpts={publicGpts}
+              userGpts={userGpts}
+              onSelectGpt={(gpt) => {
+                setActiveGpt(gpt);
+                handleNewChat();
+              }}
+              onCreateGpt={() => setCreateGptModalOpen(true)}
+            />
+          ) : (
+            <>
+              <ChatHeader gpt={activeGpt} />
+              <ChatWindow messages={messages} />
+              <MessageInput
+                message={message}
+                setMessage={setMessage}
+                handleSend={handleSend}
+                isLoading={isLoading}
+              />
+            </>
+          )}
+        </Box>
+
+        {/* Modals */}
+        <CreateGptModal
+          open={isCreateGptModalOpen}
+          onClose={() => setCreateGptModalOpen(false)}
+          onGptCreated={(newGpt) => {
+            setUserGpts((prev) => [newGpt, ...prev]);
+            setCreateGptModalOpen(false);
+          }}
+        />
+        <SettingsModal
+          open={isSettingsModalOpen}
+          onClose={() => setSettingsModalOpen(false)}
+          profile={userProfile}
+          setProfile={setUserProfile}
+        />
+      </Box>
+    </ThemeProvider>
   );
 }
 
-// --- UI Sub-components ---
-
+// --- Sub-components ---
 const ChatHeader = ({ gpt }) => (
   <Box
     sx={{
@@ -413,7 +335,6 @@ const ChatHeader = ({ gpt }) => (
 
 const ChatWindow = ({ messages }) => {
   const chatContainerRef = useRef(null);
-
   useEffect(() => {
     chatContainerRef.current?.scrollTo(
       0,
@@ -565,19 +486,14 @@ const modalStyle = {
 };
 
 const CreateGptModal = ({ open, onClose, onGptCreated }) => {
-  const { getToken } = useAuth();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [persona, setPersona] = useState("");
 
   const handleSubmit = async () => {
-    const token = await getToken();
     const response = await fetch("http://localhost:3001/gpts", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ gptsName: name, description, persona }),
     });
     const newGpt = await response.json();
@@ -587,9 +503,7 @@ const CreateGptModal = ({ open, onClose, onGptCreated }) => {
   return (
     <Modal open={open} onClose={onClose}>
       <Box sx={modalStyle}>
-        <Typography variant="h6" component="h2">
-          Create a New GPT
-        </Typography>
+        <Typography variant="h6">Create a New GPT</Typography>
         <TextField
           label="Name"
           fullWidth
@@ -622,7 +536,6 @@ const CreateGptModal = ({ open, onClose, onGptCreated }) => {
 };
 
 const SettingsModal = ({ open, onClose, profile, setProfile }) => {
-  const { getToken } = useAuth();
   const [localProfile, setLocalProfile] = useState(profile);
 
   useEffect(() => {
@@ -630,13 +543,9 @@ const SettingsModal = ({ open, onClose, profile, setProfile }) => {
   }, [profile]);
 
   const handleSave = async () => {
-    const token = await getToken();
     await fetch("http://localhost:3001/user", {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(localProfile),
     });
     setProfile(localProfile);
@@ -650,9 +559,7 @@ const SettingsModal = ({ open, onClose, profile, setProfile }) => {
   return (
     <Modal open={open} onClose={onClose}>
       <Box sx={modalStyle}>
-        <Typography variant="h6" component="h2">
-          User Settings
-        </Typography>
+        <Typography variant="h6">User Settings</Typography>
         <TextField
           label="First Name"
           name="firstName"
