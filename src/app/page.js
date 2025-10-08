@@ -1,5 +1,4 @@
 "use client";
-
 import React, { useState, useEffect, useRef } from "react";
 import {
   Box,
@@ -16,6 +15,14 @@ import {
   CircularProgress,
 } from "@mui/material";
 
+const avatars = [
+  { id: 'boy1', src: '/avatars/Boy 01.png' },
+  { id: 'girl1', src: '/avatars/Girl 01.png' },
+  { id: 'boy2', src: '/avatars/Boy 02.png' },
+  { id: 'girl2', src: '/avatars/Girl 02.png' },
+  { id: 'boy3', src: '/avatars/Boy 03.png' },
+];
+
 export default function GroupChatPage() {
   const WSS_URL = "wss://3fic3bv5sj.execute-api.ap-south-1.amazonaws.com/prod";
   const GROUP_ID = "Course-101";
@@ -27,6 +34,7 @@ export default function GroupChatPage() {
   const [userName, setUserName] = useState("");
   const [isJoined, setIsJoined] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
+  const [selectedAvatar,setSelectedAvatar]=useState(avatars[0].src)
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
 
@@ -38,10 +46,13 @@ export default function GroupChatPage() {
   // --- Join Chat ---
   const handleJoinChat = (e) => {
     e.preventDefault();
-    if (!userName.trim()) return;
-
+    if (!userName.trim() || !selectedAvatar) {
+      alert('please enter your name and avatar')
+      return
+    }
     setIsJoined(true);
-    const ws = new WebSocket(`${WSS_URL}?userId=${userName}`);
+    const userInfo={id:userName,name:userName,avatar:selectedAvatar}
+    const ws = new WebSocket(`${WSS_URL}?userInfo=${encodeURIComponent(JSON.stringify(userInfo))}`)
     setSocket(ws);
 
     ws.onopen = () => {
@@ -178,6 +189,25 @@ export default function GroupChatPage() {
           <Typography variant="h5" gutterBottom fontWeight="bold">
             Join the Discussion
           </Typography>
+          <Typography variant="subtitle1" color="text.secondary" sx={{mb:2}}>
+            Select your avatar
+          </Typography>
+                    <Box display="flex" justifyContent="center" gap={2} mb={3}>
+            {avatars.map((avatar) => (
+              <Avatar
+                key={avatar.id}
+                src={avatar.src}
+                sx={{ 
+                    width: 56, 
+                    height: 56, 
+                    cursor: 'pointer', 
+                    border: selectedAvatar === avatar.src ? '3px solid #4f46e5' : '3px solid transparent',
+                    transition: 'border 0.2s'
+                }}
+                onClick={() => setSelectedAvatar(avatar.src)}
+              />
+            ))}
+          </Box>
           <form onSubmit={handleJoinChat}>
             <TextField
               fullWidth
@@ -226,14 +256,15 @@ export default function GroupChatPage() {
           Online ({onlineUsers.length})
         </Typography>
 
-        <List dense sx={{ overflowY: "auto", flex: 1 }}>
-          {onlineUsers.map((user) => (
+        <List dense sx={{ overflowY: "auto", flex: 1, p: 1 }}>
+          <ListItem>
+            <ListItemAvatar><Avatar src={selectedAvatar} sx={{ width: 32, height: 32 }} /></ListItemAvatar>
+            <ListItemText primary={`${userName} (You)`} primaryTypographyProps={{ fontWeight: 'bold' }} />
+          </ListItem>
+          <Divider sx={{ my: 1 }} />
+          {onlineUsers.filter(user => user.id !== userName).map((user) => (
             <ListItem key={user.id}>
-              <ListItemAvatar>
-                <Avatar sx={{ bgcolor: "#4f46e5", width: 28, height: 28 }}>
-                  {user.name[0]?.toUpperCase()}
-                </Avatar>
-              </ListItemAvatar>
+              <ListItemAvatar><Avatar src={user.avatar} sx={{ width: 32, height: 32 }} /></ListItemAvatar>
               <ListItemText primary={user.name} />
             </ListItem>
           ))}
@@ -260,12 +291,14 @@ export default function GroupChatPage() {
         >
           {messages.map((msg, i) => {
             const isUser = msg.fromUserId === userName;
+            const sender=onlineUsers.find(u=>u.id===msg.fromUserId)||(isUser?{name:userName,avatar:selectedAvatar}:{name:'?',avatar:''})
             return (
               <Box
                 key={i}
                 display="flex"
                 justifyContent={isUser ? "flex-end" : "flex-start"}
               >
+                {!isUser&&<Avatar src={sender.avatar}sx={{width:36,height:36}}/>}
                 <Paper
                   elevation={1}
                   sx={{
