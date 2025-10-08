@@ -12,8 +12,10 @@ import {
   ListItem,
   ListItemAvatar,
   ListItemText,
+  IconButton,
   CircularProgress,
 } from "@mui/material";
+import CloseIcon from '@mui/icons-material/Close'
 
 const avatars = [
   { id: 'boy1', src: '/avatars/Boy 01.png' },
@@ -35,13 +37,17 @@ export default function GroupChatPage() {
   const [isJoined, setIsJoined] = useState(false);
   const [typingUsers, setTypingUsers] = useState([]);
   const [selectedAvatar,setSelectedAvatar]=useState(avatars[0].src)
+  const [replyTo,setReplyTo]=useState(null)
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
+  const inputRef=useRef(null)
 
   // Scroll into view when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, typingUsers]);
+
+
 
   // --- Join Chat ---
   const handleJoinChat = (e) => {
@@ -106,11 +112,13 @@ export default function GroupChatPage() {
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (input.trim() && socket) {
+      const action=replyTo ? 'replyToGroupMessage' : 'sendGroupMessage'
       const messagePayload = {
         action: "sendGroupMessage",
         userId: userName,
         groupId: GROUP_ID,
         message: input,
+        replyTo:replyTo ? replyTo.timestamp : undefined
       };
       socket.send(JSON.stringify(messagePayload));
 
@@ -121,8 +129,10 @@ export default function GroupChatPage() {
           fromUserId: userName,
           message: input,
           timestamp: new Date().toISOString(),
+           replyTo: replyTo ? replyTo.timestamp : undefined,
         },
       ]);
+      setReplyTo(null)
 
       // Stop typing
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
@@ -137,6 +147,10 @@ export default function GroupChatPage() {
       setInput("");
     }
   };
+  const handleReplyClick=(message)=>{
+    setReplyTo(message)
+    inputRef.current?.focus()
+  }
 
   // --- Typing Event ---
   const handleInputChange = (e) => {
@@ -292,6 +306,7 @@ export default function GroupChatPage() {
           {messages.map((msg, i) => {
             const isUser = msg.fromUserId === userName;
             const sender=onlineUsers.find(u=>u.id===msg.fromUserId)||(isUser?{name:userName,avatar:selectedAvatar}:{name:'?',avatar:''})
+            const repliedToMessage=msg.replyTo ? messages.find(m=>m.timestamp===msg.replyTo):null
             return (
               <Box
                 key={i}
@@ -311,6 +326,12 @@ export default function GroupChatPage() {
                     borderBottomLeftRadius: isUser ? 3 : 0,
                   }}
                 >
+                  {repliedToMessage&&(
+                    <Box sx={{borderLeft:2,borderColor:'gray.500',pl:1,mb:1,opacity:0.8}}>
+                      <Typography variant="caption">{repliedToMessage.fromUserId}</Typography>
+                      <Typography variant="body2" sx={{fontStyle:'italic'}}>{repliedToMessage.message}</Typography>
+                    </Box>
+                  )}
                   {!isUser && (
                     <Typography
                       variant="caption"
@@ -321,6 +342,7 @@ export default function GroupChatPage() {
                     </Typography>
                   )}
                   <Typography variant="body1">{msg.message}</Typography>
+                  <Button size="small" onClick={()=>handleReplyClick(msg)}>Reply</Button>
                 </Paper>
               </Box>
             );
@@ -338,6 +360,21 @@ export default function GroupChatPage() {
         </Box>
 
         <Divider />
+                {replyTo && (
+          <Box sx={{ p: 1, borderTop: "1px solid #e0e0e0", bgcolor: '#f5f5f5', position: 'relative' }}>
+            <Paper elevation={0} sx={{ p: 1, bgcolor: '#e0e0e0', borderLeft: '4px solid #4f46e5' }}>
+              <Typography variant="subtitle2" color="primary.main">{replyTo.fromUserId}</Typography>
+              <Typography variant="body2" noWrap color="text.secondary">{replyTo.message}</Typography>
+            </Paper>
+            <IconButton
+              onClick={() => setReplyTo(null)}
+              sx={{ position: 'absolute', top: '50%', right: '8px', transform: 'translateY(-50%)' }}
+              size="small"
+            >
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Box>
+        )}
 
         {/* --- Input Box --- */}
         <Box
