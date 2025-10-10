@@ -48,6 +48,7 @@ export default function GroupChatPage() {
   const [reactingToMessage, setReactingToMessage] = useState(null);
   const [pinnedMessage, setPinnedMessage] = useState(null);
   const availableReactions = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+  const [userStatuses, setUserStatuses] = useState({});
 
   const messagesEndRef = useRef(null);
   const typingTimeoutRef = useRef(null);
@@ -57,6 +58,30 @@ export default function GroupChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, typingUsers]);
 
+  useEffect(() => {
+    if (!socket) return;
+
+    // Find messages from others that you haven't yet marked as read
+    const unreadMessages = messages.filter(
+      (msg) =>
+        msg.fromUserId !== userName &&
+        (!msg.seenBy || !msg.seenBy.includes(userName))
+    );
+
+    // If there are any, send the 'markAsRead' action
+    if (unreadMessages.length > 0) {
+      unreadMessages.forEach((msg) => {
+        socket.send(
+          JSON.stringify({
+            action: "markAsRead",
+            userId: userName,
+            groupId: GROUP_ID,
+            messageTimestamp: msg.timestamp,
+          })
+        );
+      });
+    }
+  }, [messages, userName, socket]);
   const handleJoinChat = (e) => {
     e.preventDefault();
     if (!userName.trim() || !selectedAvatar) {
@@ -86,6 +111,11 @@ export default function GroupChatPage() {
       switch (data.type) {
         case "presenceState":
           setOnlineUsers(data.users);
+          setUserStatuses((prev) => {
+            const updated = { ...prev };
+            data.users.forEach((u) => (updated[u.id] = "online"));
+            return updated;
+          });
           break;
         case "userJoined":
           setOnlineUsers((prev) =>
@@ -93,9 +123,20 @@ export default function GroupChatPage() {
               ? prev
               : [...prev, data.user]
           );
+          setUserStatuses((prev) => ({ ...prev, [data.user.id]: "online" }));
           break;
         case "userLeft":
-          setOnlineUsers((prev) => prev.filter((u) => u.id !== data.userId));
+          setOnlineUsers((prev) => {
+            const user = prev.find((u) => u.id === data.userId);
+            // If user doesn’t exist (was never seen before), skip.
+            if (!user) return prev;
+            // Mark them offline instead of removing
+            return prev.map((u) =>
+              u.id === data.userId ? { ...u, isOnline: false } : u
+            );
+          });
+          setUserStatuses((prev) => ({ ...prev, [data.userId]: "offline" }));
+
           break;
         case "groupMessage":
           setMessages((prev) => [...prev, data]);
@@ -123,6 +164,16 @@ export default function GroupChatPage() {
 
         case "messageUnPinned":
           setPinnedMessage(null);
+          break;
+
+        case "readReceiptUpdate":
+          setMessages((prev) =>
+            prev.map((msg) =>
+              msg.timestamp === data.messageTimestamp
+                ? { ...msg, seenBy: data.seenBy }
+                : msg
+            )
+          );
           break;
       }
     };
@@ -341,9 +392,22 @@ export default function GroupChatPage() {
         </Typography>
         <List dense sx={{ overflowY: "auto", flex: 1, p: 1 }}>
           <ListItem>
-            <ListItemAvatar>
+            <ListItemAvatar sx={{ position: "relative" }}>
               <Avatar src={selectedAvatar} sx={{ width: 32, height: 32 }} />
+              <Box
+                sx={{
+                  position: "absolute",
+                  bottom: 0,
+                  right: 0,
+                  width: 10,
+                  height: 10,
+                  borderRadius: "50%",
+                  bgcolor: "#22c55e", // always online for self
+                  border: "2px solid white",
+                }}
+              />
             </ListItemAvatar>
+
             <ListItemText
               primary={`${userName} (You)`}
               primaryTypographyProps={{ fontWeight: "bold" }}
@@ -355,9 +419,38 @@ export default function GroupChatPage() {
             .map((user) => (
               <ListItem key={user.id}>
                 <ListItemAvatar>
-                  <Avatar src={user.avatar} sx={{ width: 32, height: 32 }} />
+                  <Box sx={{ position: "relative", display: "inline-block" }}>
+                    <Avatar src={user.avatar} sx={{ width: 32, height: 32 }} />
+                    <Box
+                      sx={{
+                        position: "absolute",
+                        bottom: 2,
+                        right: 2,
+                        width: 10,
+                        height: 10,
+                        borderRadius: "50%",
+                        bgcolor:
+                          userStatuses[user.id] === "online"
+                            ? "green"
+                            : userStatuses[user.id] === "offline"
+                            ? "gold"
+                            : "grey",
+                        border: "2px solid white",
+                        transition: "background-color 0.3s ease-in-out",
+                      }}
+                    />
+                  </Box>
                 </ListItemAvatar>
-                <ListItemText primary={user.name} />
+                <ListItemText
+                  primary={user.name}
+                  primaryTypographyProps={{
+                    fontWeight: "bold",
+                    color:
+                      userStatuses[user.id] === "offline"
+                        ? "text.disabled"
+                        : "inherit",
+                  }}
+                />
               </ListItem>
             ))}
         </List>
@@ -558,6 +651,49 @@ export default function GroupChatPage() {
                       </Paper>
                     )}
                   </Box>
+                  {msg.seenBy && msg.seenBy.length > 0 && (
+                    <Box
+                      display="flex"
+                      justifyContent="flex-end"
+                      alignItems="center"
+                      mt={0.5}
+                    >
+                      <Typography
+                        variant="caption"
+                        color="text.secondary"
+                        sx={{ mr: 0.5 }}
+                      >
+                        Seen by
+                      </Typography>
+                      <Box display="flex">
+                        {msg.seenBy.slice(0, 3).map((userId) => {
+                          const seenByUser = onlineUsers.find(
+                            (u) => u.id === userId
+                          );
+                          if (!seenByUser) return null; // In case user info isn't available yet
+
+                          return (
+                            <Avatar
+                              key={seenByUser.id}
+                              title={seenByUser.name} // Show name on hover!
+                              src={seenByUser.avatar}
+                              sx={{
+                                width: 20,
+                                height: 20,
+                                ml: -1, // Creates a nice stacking overlap
+                                border: "2px solid white",
+                              }}
+                            />
+                          );
+                        })}
+                        {msg.seenBy.length > 3 && (
+                          <Typography variant="caption" sx={{ ml: 0.5 }}>
+                            +{msg.seenBy.length - 3}
+                          </Typography>
+                        )}
+                      </Box>
+                    </Box>
+                  )}
                 </Box>
               );
             }
@@ -806,14 +942,13 @@ export default function GroupChatPage() {
             borderRadius: 5,
             p: 0.5,
             marginTop: "8px",
-            bgcolor:'#d5f9f5ff'
+            bgcolor: "#d5f9f5ff",
           },
         }}
       >
         <Box sx={{ display: "flex" }}>
           {availableReactions.map((reaction) => (
             <IconButton
-
               key={reaction}
               onClick={() => handleSelectReaction(reaction)}
               size="large"
